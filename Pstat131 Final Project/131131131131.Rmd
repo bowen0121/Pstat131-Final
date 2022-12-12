@@ -1,0 +1,490 @@
+---
+title: "Final Project"
+date: "2022-12-11"
+author: "Bowen Jia"
+output: 
+  html_document:
+    toc: True
+    toc_float: true
+    code_folding: show
+---
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(ISLR)
+library(ggplot2)
+library(yardstick)
+library(ISLR2)
+library(glmnet)
+library(janitor)
+library(corrr)
+library(corrplot)
+library(rpart.plot)
+library(kknn)
+library(vip)
+library(janitor)
+library(randomForest)
+library(xgboost)
+library(dplyr)
+library(skimr)
+library(kernlab)
+tidymodels_prefer(quiet = FALSE)
+Poke<-read.csv("/Users/Mac/data/Pokemon.csv") 
+Poke_cln <- clean_names(Poke)
+```
+# Introduction
+
+## Propose of the project
+
+As data science and other data analysis positions increase in demand and popularity, the future prospects and salary levels of data scientists have become a topic of great concern. Data scientists process large amounts of data by using modern tools and techniques to discover invisible patterns, obtain meaningful information, and make business decisions. A series of complex machine learning algorithms and data analysis problems have brought many people with advanced data analysis education into the industry and positions. So the aim of this project is to give people who want to enter the field an idea of how data scientists have been paid in recent years and what factors have influenced their salaries.
+
+
+```{r}
+knitr::include_graphics("/Users/Mac/data/DS.png")
+```
+## Why is this model relevant?
+It mainly about find the reasons for why some Data scientist get higher salary than others and how should DS do to get higher salary. What kind of factors caused this outcomes.By visualizate the relationship between salary and other variables, we can make some conclusions.
+
+
+## Loading Data
+
+```{r}
+ds<- read.csv(file= "/Users/Mac/data/ds_salaries.csv")
+head(ds)
+```
+```{r}
+dim(ds) 
+# show me how many observations in the new dataset
+# show me how many variables in the new dataset
+```
+
+## Data Packages
+
+Data Science Job Salaries Dataset contains 11 columns and 606 observations, each are:
+
+-'work_year': The year the salary was paid.
+
+- `experience_level`: The experience level in the job during the year
+  EN = Entry-level / Junior;
+  MI = Mid-level / Intermediate;
+  SE = Senior-level / Expert;
+  EX = Executive-level / Director
+  
+- `employment_type`: The type of employment for the role
+    - `PT` = Part-time;
+    - `FT` = Full-time;
+    - `CT` = Contract;
+    - `FL` = Freelance;
+    
+- `job_title`: The role worked in during the year.
+
+- `salary` : The total gross salary amount paid.
+
+- `salary_currency`: The currency of the salary paid as an ISO 4217 currency code.
+
+- `salaryinusd`: The salary in USD
+
+- `employee_residence`: Employee`s primary country of residence in during the work year as an ISO 3166 country code.
+
+- `remote_ratio`: The overall amount of work done remotely
+  - `0` = No remote work (less than 20%);
+  - `50` = Partially remote;
+  - `100` = Fully remote (more than 80%)
+  
+- `company_location`: The country of the employer`s main office or contracting branch
+
+- `company_size` : The median number of people that worked for the company during the year
+  - `S` = less than 50 employees (small);
+  - `M` = 50 to 250 employees (medium);
+  - `L` = more than 250 employees (large)
+  
+
+
+# Exploratory Data Analysis
+
+While the data set that was downloaded was tidy, fefore modeling,we need different cleaning steps.
+
+## clean Data
+
+Clean name
+```{r}
+ds_cln <- ds %>%
+  clean_names() 
+```
+
+
+## Data Summary
+
+Make a general sight for this dataset
+```{r}
+names(ds_cln)
+class(ds_cln$Feature)
+str(ds_cln)
+summary(ds_cln)
+```
+
+Since the value of salary is large, I choose to subtract 1000 so that to make my EDA more clear.
+```{r}
+ds_usd<- mutate(ds_cln, usd_salary_subtract_thousand=salary_in_usd/1000) 
+head(ds_usd)
+```
+
+## Check missing value
+```{r}
+sum(is.na(ds_cln)) 
+```
+
+# Visual EDA
+
+## Corrlation
+To look at correlations among the continuous variables, we will use the corrr package. The correlate() function will calculate the correlation matrix between all the variables that it is given. We choose to remove experience_level, job_title, employee_residence, company_location, company_size, as it is not numeric. Then we pass the results to rplot() to visualize the correlation matrix.
+
+```{r}
+ds_cln%>% 
+  select(c(work_year , salary, salary_in_usd, remote_ratio)) %>% 
+  select_if(is.numeric) %>% 
+  cor() %>% 
+  corrplot(method = 'number', diag = F, type = 'upper', bg = 'blue')
+```
+
+According to the correlation matrix，salary_in_usd is most revelant with employee`s work year. 
+
+## Popular roles in Data Scientist
+```{r}
+ds_cln%>% 
+ group_by(job_title)%>%
+ ggplot(aes(x = forcats::fct_infreq(job_title))) + 
+ geom_bar() +
+ coord_flip()
+```
+From this picture, we can see that the most popular positions are Data Scientist, Data Engineering, Data Analyst, Machine Learning Engineering, Research Scientist, and so on
+
+## Company Location
+
+```{r}
+ds_cln%>% 
+ group_by(company_location)%>%
+ ggplot(aes(x = forcats::fct_infreq(company_location))) + 
+ geom_bar() +
+ coord_flip()
+```
+The graph above shows that most data related workers are live in American
+
+## Salary distribution
+
+```{r}
+ds_his <- ggplot(data = ds_usd,
+    mapping = aes(x = usd_salary_subtract_thousand))
+ds_his + geom_histogram()
+
+```
+Through this table, we can see most data scientists` salary between $10k-180k, only tiny amount of workers can earn $200k+.
+
+## Data sciencist salary by work year
+
+```{r}
+ggplot(data = ds_usd, aes(factor(work_year), usd_salary_subtract_thousand)) +
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.1) +
+  xlab("Year")+labs(title = "Data Science Salary by year")
+
+
+ggplot(data = ds_usd, aes(factor(work_year), usd_salary_subtract_thousand, fill=employment_type)) + geom_col(position = "dodge")
+
+
+```
+
+These two table shows that more and more people get higher salaries from 2020 to 2022. And full time workers have completely higher salary than other part-time or contract worker. Also, we can see the there is a sudden increase salary in contract workers at 2021. We might assume this situation caused by Covid-19 and a lot of worker choose to work at home.
+
+## Data Science Salary by experience
+
+```{r}
+ggplot(data = ds_usd, aes(factor(experience_level), usd_salary_subtract_thousand)) +
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.1) +
+  xlab("experience_level")+ 
+  labs(title = "Data Science Salary by experience")
+ggplot(data = ds_usd, aes(factor(experience_level), usd_salary_subtract_thousand,fill = employment_type))  + geom_col(position = "dodge")
+```
+
+Through the first graph, we can see job titles have direct relationship with salary. Executive-level has the highist average salary. Salary and rank are positively correlated. The higher the rank, the higher the salary.
+The second chart shows that the Executive-level is all contract and full-time workers, and FL is only found in the middle and senior levels.
+
+
+## Data Science Salary by Remote Ratio
+
+```{r}
+ggplot(data = ds_usd, aes(factor(remote_ratio), usd_salary_subtract_thousand)) +
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.1) +
+  xlab("remote ratio")+labs(title = "Data Science Salary by remote ratio")
+
+```
+From this graph it is not possible to draw a direct link between the remote ratio and wages. However, we can see that those closer and further away have higher wages and those in the middle have lower wages.
+
+## Data Science Salary by Company Size
+
+```{r}
+ggplot(data = ds_usd, aes(factor(company_size), usd_salary_subtract_thousand)) +
+  geom_boxplot() + 
+  geom_jitter(alpha = 0.1) +
+  xlab("company size")+labs(title = "Data Science Salary by company size")
+
+ggplot(data = ds_usd, aes(factor(company_size), usd_salary_subtract_thousand,fill = employment_type))  + geom_col(position = "dodge")
+```
+The salaries of employees in medium-sized companies are relatively concentrated, with the average company paying slightly more than large companies. And the bigger the company, the more full-time employees there are.
+
+
+## Data Science Salary by Employee Sesidence
+
+```{r}
+ggplot(data = ds_usd,aes(x = usd_salary_subtract_thousand, y = employee_residence )) + 
+  geom_boxplot() +
+  theme_bw() +
+  labs(x = "usd_salary(thousdands)", y = "emlpoyee_residence") 
+```
+As can be clearly seen from the chart, data scientists in the United States have a higher average salary.
+
+# Model Preparation
+
+## Initial Split
+
+The data was split in a 80% training, 20% testing split. And the seeds here can make us produce same result every time.
+
+```{r}
+set.seed(2022)
+ds_split <- initial_split(ds, prop = 0.80, strata = salary_in_usd) #use stratified sampling
+ds_train <- training(ds_split)
+ds_test <- testing(ds_split)
+```
+
+## Create Recipe
+
+Because we are going to be use the same predictors, model conditions, and response variable, we create one central recipe for all of our models to work with. I use all of my variable to create this recipe
+
+```{r}
+simple_ds_recipe <- recipe(salary_in_usd ~ ., data = ds_train) 
+simple_ds_recipe
+
+ds_recipe <- recipe(salary_in_usd ~ ., data = ds_train) %>% 
+  step_dummy(all_nominal_predictors())
+# there is one outcomes and 11 predictors
+```
+
+## Cross-Validation
+
+We will use layered cross validation to help solve the problem of data imbalance. We will fold the training set by v-fold and put v=5. Of course, we will layer the response variable salary_in_usd.
+
+```{r}
+# Fold the training set using v-fold cross-validation, with 'v = 5'. Stratify on the outcome variable.
+ds_folds <- vfold_cv(ds_train, v = 5, strata = salary_in_usd)
+```
+
+# Models
+
+We're now going to see which model does best at v=5.We performed the analysis through the following models: Linear Regression, Elastic NetTuning, Decision Tree, Boosted Tree.
+
+## Linear Regression
+
+```{r}
+lm_model <- linear_reg() %>% 
+  set_engine("lm")
+```
+```{r}
+lm_wflow <- workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(ds_recipe)
+```
+Finally, we can fit the linear model to the training set
+```{r}
+lm_fit <- fit(lm_wflow, ds_train)
+```
+Then, review model results
+```{r}
+lm_fit %>% 
+  # This returns the parsnip object:
+  extract_fit_parsnip() %>% 
+  # Now tidy the linear model object:
+  tidy()
+```
+```{r}
+ds_train_res <- predict(lm_fit, new_data = ds_train %>% select(-salary_in_usd))
+ds_train_res %>% 
+  head()
+```
+```{r}
+ds_train_res <- bind_cols(ds_train_res, ds_train %>% select(salary_in_usd))
+ds_train_res %>% 
+  head()
+```
+```{r}
+ds_train_res %>% 
+  ggplot(aes(x = .pred, y = salary_in_usd)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(lty = 2) + 
+  theme_bw() +
+  coord_obs_pred()
+```
+```{r}
+lm_models <- linear_reg() %>% 
+  set_engine("lm")
+
+lm_wk_flow <- workflow() %>% 
+  add_model(lm_models) %>% 
+  add_recipe(ds_recipe)
+
+lm_cv <- fit_resamples(lm_wk_flow, resamples = ds_folds)
+
+collect_metrics(lm_cv)
+```
+
+This is my simple linear regression model. From the graph we can conclude there is a positive relationship between predictors and salary. And rsq value is 0.379, which means only 37.9% variability can be used in this model, thus simple linear regression is not best model for the data.
+
+
+## Elastic Net Tuning
+```{r}
+elastic_net <-linear_reg(penalty = tune(), mixture = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+elastic_net_workflow <- workflow() %>% 
+  add_recipe(ds_recipe) %>% 
+  add_model(elastic_net)
+
+elastic_net_grid <- grid_regular(penalty(range = c(-10, 10)), mixture(range = c(0,1)), levels = 10)
+
+tune_res <- tune_grid(elastic_net_workflow,resamples = ds_folds, grid = elastic_net_grid)
+
+autoplot(tune_res)
+
+```
+
+
+```{r}
+collect_metrics(tune_res)
+```
+The “best” values of this can be selected using select_best();
+```{r}
+best_penalty <- select_best(tune_res, metric = "rsq")
+best_penalty
+```
+```{r} 
+
+# final model can now be applied on our testing data set to validate its performance
+ridge_final <- finalize_workflow(elastic_net_workflow, best_penalty)
+
+ridge_final_fit <- fit(ridge_final, data = ds_train)
+
+augment(ridge_final_fit, new_data = ds_test) %>%
+  rsq(truth = salary_in_usd, estimate = .pred)
+
+```
+
+Therefore, from this graph we can derive the larger the penalty value or "regularization amount" and the mixed value, the higher the rmse. And most of the rsq is now up and then down. And according to the icon, we can see that only 45.07% of the data applies to this model. Therefore, we conclude that although Elastic Net Tuning is better for these data than simple linear regression, it is still not a good fit.
+
+
+## Decision Tree
+```{r}
+set.seed(2022)
+
+tree_spec <- decision_tree() %>%
+  set_engine("rpart")
+
+class_tree_spec <- tree_spec %>%
+  set_mode("regression")
+
+
+class_tree_wf <- workflow() %>%
+add_model(class_tree_spec %>% set_args(cost_complexity = tune())) %>%
+  add_recipe(ds_recipe)
+
+
+param_grid <- grid_regular(cost_complexity(range = c(-3, -1)), levels = 10)
+
+tune_res <- tune_grid(class_tree_wf, 
+  resamples = ds_folds, 
+  grid = param_grid, 
+  metrics = metric_set(rsq))
+
+autoplot(tune_res)
+
+```
+
+
+```{r}
+arrange(collect_metrics(tune_res), desc(mean))
+```
+```{r}
+best_complexity <- select_best(tune_res)
+
+class_tree_final <- finalize_workflow(class_tree_wf, best_complexity)
+
+class_tree_final_fit <- fit(class_tree_final, data = ds_train)
+```
+
+```{r}
+class_tree_final_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot()
+```
+
+```{r}
+head(arrange(collect_metrics(tune_res), desc(mean)),1)
+```
+Thus, from the table above, R^2 is 92.3%, which is fit for our data. This is better than Linear regression and Elastic Net Tuning.
+
+
+## Boosted tree
+
+
+```{r}
+boost_spec <- boost_tree() %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+boost_wf <- workflow() %>%
+  add_model(boost_spec %>% set_args(trees = tune(),tree_depth =tune())) %>%
+  add_recipe(ds_recipe)
+
+boost_grid <- grid_regular(trees(range = c(20,1000)),
+                           tree_depth(range = c(1,10)), 
+                           levels = 10)
+
+boost_tune_res <- tune_grid(
+  boost_wf,
+  resamples = ds_folds,
+  grid = boost_grid,
+  metrics = metric_set(rsq)
+)      
+
+
+autoplot(boost_tune_res)
+```
+From this figure, we can see that most Tree deep rsq does not change with the increase of tree, while a small part increases with the increase of Tree.
+
+```{r}
+
+finally_res <- arrange(collect_metrics(boost_tune_res), desc(mean))
+head(finally_res)
+```
+Thus，we can see this model`s R value is nearly 95%. Thus, this Boosted Trees is the best model we should choose.
+
+# Conclusion
+
+- Data science jobs are becoming more popular. Not only are the number of jobs increasing, but the average salary is also increasing every year.
+
+- If only opportunity salary analysis, an employee wants to get the highest salary possible, the United States should be their choice.
+
+- Large and medium-sized companies pay higher wages than small and medium-sized companies.
+
+- Most people are employed full time, and the wages of full-time employees are significantly higher than those of part-time and contract workers.
+
+- Data Engineer, data scientist, and machine learning engineer are the most valuable titles (based on their average salaries).
+
+- The number of years worked in this field is directly proportional to the salary. That means staying in the industry longer, gaining experience and moving up, and then getting a big pay bump.
+
+- Most of the data comes from the United States. And the US pays much higher wages than other countries.
+
+- The best fit model for this dataset is boosted tree,  R^2 value is 95% when tree deep is 3. 
+
